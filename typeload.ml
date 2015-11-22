@@ -244,7 +244,11 @@ let make_module ctx mpath file tdecls loadp =
 				cff_access = [AInline];
 				cff_kind = FFun f;
 			} in
-			EClass {d with d_data = cff :: l; d_flags = []},p
+			let flags = List.map (function
+				| EPrivate -> HPrivate
+				| EExtern -> HExtern
+			) d.d_flags in
+			EClass {d with d_data = cff :: l; d_flags = flags},p
 		| (decl,p) -> decl,p
 	) tdecls in
 	let tdecls = List.fold_left make_decl [] tdecls in
