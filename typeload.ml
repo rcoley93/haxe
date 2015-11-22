@@ -215,6 +215,7 @@ let make_module ctx mpath file tdecls loadp =
 		| ((ETypedef ({d_data = CTAnonymous l} as d)),p) when Meta.has Meta.Struct d.d_meta ->
 			let rec loop cfl = match cfl with
 				| {cff_kind = FVar (cto,None)} as cff :: cfl ->
+					if not (List.mem APublic cff.cff_access) then cff.cff_access <- APublic :: cff.cff_access;
 					let args = cff.cff_name,Meta.has Meta.Optional cff.cff_meta,cto,None in
 					args :: loop cfl
 				| _ :: cfl ->
