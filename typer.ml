@@ -64,6 +64,11 @@ type access_kind =
 	| AKUsing of texpr * tclass * tclass_field * texpr
 	| AKAccess of tabstract * tparams * tclass * texpr * texpr
 
+type object_decl_kind =
+	| ODKWithStructure of tanon
+	| ODKWithClass of tclass * tparams
+	| ODKPlain
+
 let build_call_ref : (typer -> access_kind -> expr list -> with_type -> pos -> texpr) ref = ref (fun _ _ _ _ _ -> assert false)
 
 let mk_infos ctx p params =
@@ -2921,10 +2926,10 @@ and type_expr ctx (e,p) (with_type:with_type) =
 		mk (TParenthesis e) e.etype p
 	| EObjectDecl fl ->
 		let dynamic_parameter = ref None in
-		let a = (match with_type with
+		let odk = match with_type with
 		| WithType t | WithTypeResume t ->
-			(match follow t with
-			| TAnon a when not (PMap.is_empty a.a_fields) -> Some a
+			begin match follow t with
+			| TAnon a when not (PMap.is_empty a.a_fields) -> ODKWithStructure a
 			(* issues with https://github.com/HaxeFoundation/haxe/issues/3437 *)
 (* 			| TAbstract (a,tl) when not (Meta.has Meta.CoreType a.a_meta) && a.a_from <> [] ->
 				begin match follow (Abstract.get_underlying_type a tl) with
@@ -2933,42 +2938,26 @@ and type_expr ctx (e,p) (with_type:with_type) =
 				end *)
 			| TDynamic t when (follow t != t_dynamic) ->
 				dynamic_parameter := Some t;
-				Some {
+				ODKWithStructure {
 					a_status = ref Closed;
 					a_fields = PMap.empty;
 				}
-			| _ -> None)
-		| _ -> None
-		) in
+			| TInst(c,tl) when Meta.has Meta.Struct c.cl_meta -> ODKWithClass(c,tl)
+			| _ -> ODKPlain
+			end
+		| _ -> ODKPlain
+		in
 		let wrap_quoted_meta e =
 			mk (TMeta((Meta.QuotedField,[],e.epos),e)) e.etype e.epos
 		in
-		(match a with
-		| None ->
-			let rec loop (l,acc) (f,e) =
-				let f,is_quoted,is_valid = Parser.unquote_ident f in
-				if PMap.mem f acc then error ("Duplicate field in object declaration : " ^ f) p;
-				let e = type_expr ctx e Value in
-				(match follow e.etype with TAbstract({a_path=[],"Void"},_) -> error "Fields of type Void are not allowed in structures" e.epos | _ -> ());
-				let cf = mk_field f e.etype e.epos in
-				let e = if is_quoted then wrap_quoted_meta e else e in
-				((f,e) :: l, if is_valid then begin
-					if String.length f > 0 && f.[0] = '$' then error "Field names starting with a dollar are not allowed" p;
-					PMap.add f cf acc
-				end else acc)
-			in
-			let fields , types = List.fold_left loop ([],PMap.empty) fl in
-			let x = ref Const in
-			ctx.opened <- x :: ctx.opened;
-			mk (TObjectDecl (List.rev fields)) (TAnon { a_fields = types; a_status = x }) p
-		| Some a ->
+		let type_fields field_map =
 			let fields = ref PMap.empty in
 			let extra_fields = ref [] in
 			let fl = List.map (fun (n, e) ->
 				let n,is_quoted,is_valid = Parser.unquote_ident n in
 				if PMap.mem n !fields then error ("Duplicate field in object declaration : " ^ n) p;
 				let e = try
-					let t = (match !dynamic_parameter with Some t -> t | None -> (PMap.find n a.a_fields).cf_type) in
+					let t = (match !dynamic_parameter with Some t -> t | None -> (PMap.find n field_map).cf_type) in
 					let e = type_expr ctx e (match with_type with WithTypeResume _ -> WithTypeResume t | _ -> WithType t) in
 					let e = Codegen.AbstractCast.cast_or_unify ctx t e p in
 					(try type_eq EqStrict e.etype t; e with Unify_error _ -> mk (TCast (e,None)) t e.epos)
@@ -2992,7 +2981,7 @@ and type_expr ctx (e,p) (with_type:with_type) =
 					| WithTypeResume _ -> raise (WithTypeError (l,p))
 					| _ -> raise (Error (Unify l,p))
 				in
-				(match PMap.foldi (fun n cf acc -> if not (Meta.has Meta.Optional cf.cf_meta) && not (PMap.mem n !fields) then n :: acc else acc) a.a_fields [] with
+				(match PMap.foldi (fun n cf acc -> if not (Meta.has Meta.Optional cf.cf_meta) && not (PMap.mem n !fields) then n :: acc else acc) field_map [] with
 					| [] -> ()
 					| [n] -> unify_error [Unify_custom ("Object requires field " ^ n)] p
 					| nl -> unify_error [Unify_custom ("Object requires fields: " ^ (String.concat ", " nl))] p);
@@ -3000,8 +2989,59 @@ and type_expr ctx (e,p) (with_type:with_type) =
 				| [] -> ()
 				| _ -> unify_error (List.map (fun n -> has_extra_field t n) !extra_fields) p);
 			end;
+			t,fl
+		in
+		begin match odk with
+		| ODKPlain ->
+			let rec loop (l,acc) (f,e) =
+				let f,is_quoted,is_valid = Parser.unquote_ident f in
+				if PMap.mem f acc then error ("Duplicate field in object declaration : " ^ f) p;
+				let e = type_expr ctx e Value in
+				(match follow e.etype with TAbstract({a_path=[],"Void"},_) -> error "Fields of type Void are not allowed in structures" e.epos | _ -> ());
+				let cf = mk_field f e.etype e.epos in
+				let e = if is_quoted then wrap_quoted_meta e else e in
+				((f,e) :: l, if is_valid then begin
+					if String.length f > 0 && f.[0] = '$' then error "Field names starting with a dollar are not allowed" p;
+					PMap.add f cf acc
+				end else acc)
+			in
+			let fields , types = List.fold_left loop ([],PMap.empty) fl in
+			let x = ref Const in
+			ctx.opened <- x :: ctx.opened;
+			mk (TObjectDecl (List.rev fields)) (TAnon { a_fields = types; a_status = x }) p
+		| ODKWithStructure a ->
+			let t,fl = type_fields a.a_fields in
 			if !(a.a_status) <> Const then a.a_status := Closed;
-			mk (TObjectDecl fl) t p)
+			mk (TObjectDecl fl) t p
+		| ODKWithClass(c,tl) ->
+			let _,ctor = get_constructor ctx c tl p in
+			let args = match follow ctor.cf_type with
+				| TFun(args,_) -> args
+				| _ -> assert false
+			in
+			let fields = List.fold_left (fun acc (n,_,_) -> PMap.add n (PMap.find n c.cl_fields) acc) PMap.empty args in
+			let t,fl = type_fields fields in
+			let evars,fl,_ = List.fold_left (fun (evars,elocs,had_side_effect) (s,e) ->
+				begin match e.eexpr with
+				| TConst _ | TTypeExpr _ | TFunction _ ->
+					evars,(s,e) :: elocs,had_side_effect
+				| _ ->
+					if had_side_effect then begin
+						let v = gen_local ctx e.etype in
+						let ev = mk (TVar(v,Some e)) e.etype e.epos in
+						let eloc = mk (TLocal v) v.v_type e.epos in
+						(ev :: evars),((s,eloc) :: elocs),had_side_effect
+					end else
+						evars,(s,e) :: elocs,Optimizer.has_side_effect e
+				end
+			) ([],[],false) (List.rev fl) in
+			let el = List.map (fun (n,_,t) ->
+				try List.assoc n fl
+				with Not_found -> mk (TConst TNull) t p
+			) args in
+			let e = mk (TNew(c,tl,el)) (TInst(c,tl)) p in
+			mk (TBlock (List.rev (e :: (List.rev evars)))) e.etype e.epos
+		end
 	| EArrayDecl [(EFor _,_) | (EWhile _,_) as e] ->
 		let v = gen_local ctx (mk_mono()) in
 		let et = ref (EConst(Ident "null"),p) in
