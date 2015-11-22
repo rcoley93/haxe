@@ -211,6 +211,42 @@ let make_module ctx mpath file tdecls loadp =
 		) in
 		decl :: acc
 	in
+	let tdecls = List.map (function
+		| ((ETypedef ({d_data = CTAnonymous l} as d)),p) when Meta.has Meta.Struct d.d_meta ->
+			let rec loop cfl = match cfl with
+				| {cff_kind = FVar (cto,None)} as cff :: cfl ->
+					let args = cff.cff_name,Meta.has Meta.Optional cff.cff_meta,cto,None in
+					args :: loop cfl
+				| _ :: cfl ->
+					loop cfl
+				| [] ->
+					[]
+			in
+			let args = loop l in
+			let el = List.map (fun (n,_,_,_) ->
+				let ethis = EConst(Ident "this"),p in
+				let ef = EField(ethis,n),p in
+				let ei = EConst(Ident n),p in
+				let e = EBinop(OpAssign,ef,ei),p in
+				e
+			) args in
+			let f = {
+				f_params = [];
+				f_args = args;
+				f_type = None;
+				f_expr = Some (EBlock el,p);
+			} in
+			let cff = {
+				cff_name = "new";
+				cff_doc = None;
+				cff_pos = p;
+				cff_meta = [];
+				cff_access = [AInline];
+				cff_kind = FFun f;
+			} in
+			EClass {d with d_data = cff :: l; d_flags = []},p
+		| (decl,p) -> decl,p
+	) tdecls in
 	let tdecls = List.fold_left make_decl [] tdecls in
 	let decls = List.rev !decls in
 	m.m_types <- List.map fst decls;
