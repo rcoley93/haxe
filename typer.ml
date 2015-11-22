@@ -2942,7 +2942,7 @@ and type_expr ctx (e,p) (with_type:with_type) =
 					a_status = ref Closed;
 					a_fields = PMap.empty;
 				}
-			| TInst(c,tl) when Meta.has Meta.Struct c.cl_meta -> ODKWithClass(c,tl)
+			| TInst(c,tl) when Meta.has Meta.Class c.cl_meta -> ODKWithClass(c,tl)
 			| _ -> ODKPlain
 			end
 		| _ -> ODKPlain

@@ -212,7 +212,7 @@ let make_module ctx mpath file tdecls loadp =
 		decl :: acc
 	in
 	let tdecls = List.map (function
-		| ((ETypedef ({d_data = CTAnonymous l} as d)),p) when Meta.has Meta.Struct d.d_meta ->
+		| ((ETypedef ({d_data = CTAnonymous l} as d)),p) when Meta.has Meta.Class d.d_meta ->
 			let rec loop cfl = match cfl with
 				| {cff_kind = FVar (cto,None)} as cff :: cfl ->
 					if not (List.mem APublic cff.cff_access) then cff.cff_access <- APublic :: cff.cff_access;

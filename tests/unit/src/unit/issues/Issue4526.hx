@@ -1,6 +1,6 @@
 package unit.issues;
 
-@:struct
+@:class
 private typedef Struct1 = {
 	var x:Int;
 	var y:Int;
@@ -9,7 +9,7 @@ private typedef Struct1 = {
 	}
 }
 
-@:struct
+@:class
 private typedef Struct2 = {
 	@:optional var x:Int;
 	var y:Int;
@@ -18,7 +18,7 @@ private typedef Struct2 = {
 	}
 }
 
-@:struct
+@:class
 private typedef Struct3 = {
 	@:optional var x:Int;
 	@:optional var y:Int;
@@ -27,7 +27,7 @@ private typedef Struct3 = {
 	}
 }
 
-@:struct
+@:class
 private typedef Struct4 = {
 	var x:Int;
 	var y:Int;
