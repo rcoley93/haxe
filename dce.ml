@@ -202,26 +202,24 @@ let mark_mt dce mt = match mt with
 
 (* find all dependent fields by checking implementing/subclassing types *)
 let rec mark_dependent_fields dce csup n stat =
-	List.iter (fun mt -> match mt with
-		| TClassDecl c when is_parent csup c ->
-			let rec loop c =
-				(try
-					let cf = PMap.find n (if stat then c.cl_statics else c.cl_fields) in
-					(* if it's clear that the class is kept, the field has to be kept as well. This is also true for
-					   extern interfaces because we cannot remove fields from them *)
-					if Meta.has Meta.Used c.cl_meta || (csup.cl_interface && csup.cl_extern) then mark_field dce c cf stat
-					(* otherwise it might be kept if the class is kept later, so mark it as :?used *)
-					else if not (Meta.has Meta.MaybeUsed cf.cf_meta) then begin
-						cf.cf_meta <- (Meta.MaybeUsed,[],cf.cf_pos) :: cf.cf_meta;
-						dce.marked_maybe_fields <- cf :: dce.marked_maybe_fields;
-					end
-				with Not_found ->
-					(* if the field is not present on current class, it might come from a base class *)
-					(match c.cl_super with None -> () | Some (csup,_) -> loop csup))
-			in
-			loop c
-		| _ -> ()
-	) dce.com.types
+	List.iter (fun (c,_) ->
+		let rec loop c =
+			(try
+				let cf = PMap.find n (if stat then c.cl_statics else c.cl_fields) in
+				(* if it's clear that the class is kept, the field has to be kept as well. This is also true for
+				   extern interfaces because we cannot remove fields from them *)
+				if Meta.has Meta.Used c.cl_meta || (csup.cl_interface && csup.cl_extern) then mark_field dce c cf stat
+				(* otherwise it might be kept if the class is kept later, so mark it as :?used *)
+				else if not (Meta.has Meta.MaybeUsed cf.cf_meta) then begin
+					cf.cf_meta <- (Meta.MaybeUsed,[],cf.cf_pos) :: cf.cf_meta;
+					dce.marked_maybe_fields <- cf :: dce.marked_maybe_fields;
+				end
+			with Not_found ->
+				(* if the field is not present on current class, it might come from a base class *)
+				(match c.cl_super with None -> () | Some (csup,_) -> loop csup))
+		in
+		loop c
+	) csup.cl_dependent
 
 (* expr and field evaluation *)
 
@@ -552,6 +550,7 @@ let fix_accessors com =
 	) com.types
 
 let run com main full =
+	let timer = Common.timer "dce" in
 	let dce = {
 		com = com;
 		full = full;
@@ -748,5 +747,4 @@ let run com main full =
 	in
 	List.iter (fun cf -> cf.cf_meta <- remove_meta Meta.Used cf.cf_meta) dce.marked_fields;
 	List.iter (fun cf -> cf.cf_meta <- remove_meta Meta.MaybeUsed cf.cf_meta) dce.marked_maybe_fields;
-
-
+	timer()
