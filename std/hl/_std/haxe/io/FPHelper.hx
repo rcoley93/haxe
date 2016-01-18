@@ -21,33 +21,36 @@
  */
 package haxe.io;
 
-#if neko
-	typedef BytesData =	neko.NativeString;
-#elseif flash
-	typedef BytesData =	flash.utils.ByteArray;
-#elseif php
-	typedef BytesData = php.BytesData;
-#elseif cpp
-	extern class Unsigned_char__ { }
-	typedef BytesData = Array<Unsigned_char__>;
-#elseif java
-	typedef BytesData = java.NativeArray<java.StdTypes.Int8>;
-#elseif cs
-	typedef BytesData = cs.NativeArray<cs.StdTypes.UInt8>;
-#elseif python
-	typedef BytesData = python.Bytearray;
-#elseif js
-	typedef BytesData = js.html.ArrayBuffer;
-#elseif hl
-	class BytesDataImpl {
-		public var b : hl.types.Bytes;
-		public var length : Int;
-		public function new(b,length) {
-			this.b = b;
-			this.length = length;
-		}
+class FPHelper {
+
+	// note : this is not thread safe, use TLS when available
+	static var i64tmp = Int64.ofInt(0);
+	static var helper = new hl.types.Bytes(8);
+
+	public static function i32ToFloat( i : Int ) : Single {
+		helper.setI32(0,i);
+		return helper.getF32(0);
 	}
-	typedef BytesData = BytesDataImpl;
-#else
-	typedef BytesData = Array<Int>;
-#end
+
+	public static function floatToI32( f : Single ) : Int {
+		helper.setF32(0,f);
+		return helper.getI32(0);
+	}
+
+	public static function i64ToDouble( low : Int, high : Int ) : Float {
+		helper.setI32(0,low);
+		helper.setI32(4,high);
+		return helper.getF64(0);
+	}
+
+	public static function doubleToI64( v : Float ) : Int64 {
+		helper.setF64(0,v);
+		var i64 = i64tmp;
+		@:privateAccess {
+			i64.set_low(helper.getI32(0));
+			i64.set_high(helper.getI32(4));
+		}
+		return i64;
+	}
+
+}
